@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AcuerdoClaro · Acuerdos verificables en Stellar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e9eef3;--ink:#14213d;--muted:#5a6a80;--line:#c9d3de;--paper:#fbfcfd;--seal:#0f8b6d;--wait:#b7791f;--bad:#b03a48;--r:6px}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1522;--ink:#e6ecf4;--muted:#92a2b8;--line:#27364d;--paper:#16202f;--seal:#3ec9a3;--wait:#e0a84a;--bad:#ef7a88}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Figtree,system-ui,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:40px 20px 80px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:32px}
+h1{font:700 clamp(2rem,5vw,3.4rem)/1 "Bricolage Grotesque",sans-serif;margin:0;letter-spacing:-.03em}
+header p{margin:8px 0 0;color:var(--muted);max-width:46ch}
+h2{font:700 1.15rem "Bricolage Grotesque",sans-serif;margin:0 0 14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.box{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:22px}
+label{display:block;font-weight:600;font-size:.9rem;margin:14px 0 4px}
+input,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:110px;resize:vertical}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--seal);outline-offset:1px}
+button{font:600 .95rem Figtree,sans-serif;padding:10px 16px;border-radius:var(--r);border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button.alt{background:transparent;color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.hash{font:12px/1.4 ui-monospace,monospace;color:var(--muted);word-break:break-all;margin-top:6px}
+.sheet dl{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;margin:0}
+.sheet dt{color:var(--muted);font-size:.88rem}
+.sheet dd{margin:0;word-break:break-all;font-size:.92rem}
+.stamp{display:inline-block;padding:3px 12px;border:2px solid currentColor;border-radius:var(--r);font:700 1rem "Bricolage Grotesque",sans-serif;transform:rotate(-3deg)}
+.s0{color:var(--wait)}.s1{color:var(--seal)}.s2{color:var(--bad)}
+.empty{color:var(--muted)}
+#log{margin-top:20px;font-size:.92rem}
+#log.err{color:var(--bad)}
+#log a{color:var(--seal);font-weight:600}
+.net{font-size:.85rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>AcuerdoClaro</h1>
+    <p>Crea un acuerdo, tu cliente lo acepta con Freighter y queda sellado en Stellar Testnet.</p>
+  </div>
+  <div>
+    <button id="connect">Conectar Freighter</button>
+    <div class="net" id="who">Sin conectar</div>
+  </div>
+</header>
+
+<div class="box" style="margin-bottom:20px">
+  <label for="cid" style="margin-top:0">Dirección del contrato (C…)</label>
+  <input id="cid" placeholder="C..." autocomplete="off" spellcheck="false">
+</div>
+
+<div class="grid">
+  <section class="box">
+    <h2>Nuevo acuerdo</h2>
+    <label for="title">Título</label>
+    <input id="title" maxlength="80" placeholder="Diseño de logo, 3 propuestas">
+    <label for="cp">Wallet de la otra persona (G…)</label>
+    <input id="cp" placeholder="G..." autocomplete="off" spellcheck="false">
+    <label for="terms">Condiciones completas</label>
+    <textarea id="terms" placeholder="Entregables, precio, fechas, revisiones…"></textarea>
+    <div class="hash" id="hash">Huella SHA-256: —</div>
+    <div class="row"><button id="create" disabled>Crear acuerdo en Stellar</button></div>
+  </section>
+
+  <section class="box sheet">
+    <h2>Consultar o aceptar</h2>
+    <label for="aid" style="margin-top:0">Número de acuerdo</label>
+    <input id="aid" type="number" min="1" placeholder="1">
+    <div class="row">
+      <button id="load" class="alt" disabled>Ver acuerdo</button>
+      <button id="accept" disabled>Aceptar</button>
+      <button id="cancel" class="alt" disabled>Cancelar</button>
+    </div>
+    <div id="detail" style="margin-top:20px"><p class="empty">Ingresa un número para ver su estado.</p></div>
+  </section>
+</div>
+
+<div id="log" role="status" aria-live="polite"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@stellar/stellar-sdk@13.1.0/dist/stellar-sdk.min.js"></script>
+<script type="module">
+
+import freighterApi from "https://esm.sh/@stellar/freighter-api@6.0.1";
+
+const StellarSdk = window.StellarSdk;
+const { Contract, TransactionBuilder, nativeToScVal, scValToNative, xdr, Address, rpc } = StellarSdk;
+
+const RPC = "https://soroban-testnet.stellar.org";
+const server = new rpc.Server(RPC);
+const NET = "Test SDF Network ; September 2015";
+const $ = id => document.getElementById(id);
+const STATUS = ["Pendiente", "Aceptado", "Cancelado"];
+let pub = null;
+
+
+$("cid").value = localStorage.getItem("cid") || "";
+$("cid").addEventListener("change", () => localStorage.setItem("cid", $("cid").value.trim()));
+
+const say = (html, err = false) => { $("log").className = err ? "err" : ""; $("log").innerHTML = html; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const toHex = u8 => [...u8].map(b => b.toString(16).padStart(2, "0")).join("");
+const sha256 = async t => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t.trim())));
+
+$("terms").addEventListener("input", async () => {
+  const t = $("terms").value;
+  $("hash").textContent = "Huella SHA-256: " + (t.trim() ? toHex(await sha256(t)) : "—");
+});
+
+function toggle(on) { ["create", "load", "accept", "cancel"].forEach(i => $(i).disabled = !on); }
+
+
+
+
+$("connect").onclick = async () => {
+  say("Buscando Freighter...");
+
+  try {
+    const check = await freighterApi.isConnected();
+
+    console.log("Estado de Freighter:", check);
+
+    if (check.error) {
+      throw new Error(check.error.message || String(check.error));
+    }
+
+    if (!check.isConnected) {
+      throw new Error(
+        "La API no detecta la extensión. Comprueba que Freighter esté habilitada en este perfil de Chrome."
+      );
+    }
+
+    say("Freighter detectada. Solicitando permiso...");
+
+    const acc = await freighterApi.requestAccess();
+
+    if (acc.error) {
+      throw new Error(acc.error.message || String(acc.error));
+    }
+
+    if (!acc.address) {
+      throw new Error("No se recibió una dirección pública.");
+    }
+
+    pub = acc.address;
+
+    $("who").textContent =
+      pub.slice(0, 6) + "…" + pub.slice(-6);
+
+    toggle(true);
+    say("Wallet conectada. Dirección pública recibida.");
+
+  } catch (e) {
+    console.error("Error de conexión:", e);
+    say("No se pudo conectar: " + esc(e.message), true);
+  }
+};
+
+
+
+const contractId = () => {
+  const id = $("cid").value.trim();
+  if (!/^C[A-Z2-7]{55}$/.test(id)) throw new Error("Escribe una dirección de contrato válida (C…).");
+  return id;
+};
+const addr = (a) => Address.fromString(a).toScVal();
+const str = s => nativeToScVal(s, { type: "string" });
+const u32 = n => nativeToScVal(Number(n), { type: "u32" });
+
+async function buildTx(method, args) {
+  const account = await server.getAccount(pub);
+  return new TransactionBuilder(account, { fee: "1000000", networkPassphrase: NET })
+    .addOperation(new Contract(contractId()).call(method, ...args))
+    .setTimeout(60).build();
+}
+
+async function read(method, args) {
+  const sim = await server.simulateTransaction(
+    await buildTx(method, args)
+  );
+
+  if (!sim.result) {
+    console.error("Resultado de Stellar:", sim);
+    throw new Error("No se pudo consultar el acuerdo. Revisa la consola.");
+  }
+
+  return scValToNative(sim.result.retval);
+}
+
+async function invoke(method, args) {
+  const prepared = await server.prepareTransaction(await buildTx(method, args));
+  const res = await freighterApi.signTransaction(
+    prepared.toXDR(),
+    { networkPassphrase: NET, address: pub }
+  );  
+  if (res.error) throw new Error(res.error.message || res.error);
+  const sent = await server.sendTransaction(TransactionBuilder.fromXDR(res.signedTxXdr, NET));
+  if (sent.status === "ERROR") throw new Error("La red rechazó la transacción.");
+  let r;
+  for (let i = 0; i < 30; i++) {
+    r = await server.getTransaction(sent.hash);
+    if (r.status !== "NOT_FOUND") break;
+    await new Promise(ok => setTimeout(ok, 1500));
+  }
+  if (r.status !== "SUCCESS") throw new Error("La transacción falló (" + r.status + "). Hash: " + sent.hash);
+  return { hash: sent.hash, value: r.returnValue ? scValToNative(r.returnValue) : null };
+}
+
+const txLink = h => `<a href="https://stellar.expert/explorer/testnet/tx/${h}" target="_blank" rel="noopener">Ver en Stellar Expert</a>`;
+const fmtDate = ts => Number(ts) ? new Date(Number(ts) * 1000).toLocaleString("es-MX") : "—";
+
+function render(a) {
+  const s = Number(a.status);
+  $("detail").innerHTML = `<span class="stamp s${s}">${STATUS[s]}</span>
+  <dl style="margin-top:16px">
+    <dt>Título</dt><dd>${esc(a.title)}</dd>
+    <dt>Creó</dt><dd>${esc(a.creator)}</dd>
+    <dt>Contraparte</dt><dd>${esc(a.counterparty)}</dd>
+    <dt>Huella</dt><dd style="font-family:ui-monospace,monospace;font-size:.78rem">${toHex(a.terms_hash)}</dd>
+    <dt>Creado</dt><dd>${fmtDate(a.created_at)}</dd>
+    <dt>Aceptado</dt><dd>${fmtDate(a.accepted_at)}</dd>
+  </dl>`;
+}
+
+async function run(label, fn) {
+  say(label + "…");
+  toggle(false);
+  try { await fn(); } catch (e) { say(esc(e.message), true); }
+  toggle(true);
+}
+
+$("create").onclick = () => run("Esperando tu firma en Freighter", async () => {
+  const title = $("title").value.trim(), cp = $("cp").value.trim(), terms = $("terms").value;
+  if (!title || !terms.trim() || !cp) throw new Error("Completa título, wallet y condiciones.");
+  const hash = await sha256(terms);
+  const { hash: tx, value } = await invoke("create", [addr(pub), addr(cp), str(title), xdr.ScVal.scvBytes(hash)]);
+  $("aid").value = value;
+  say(`Acuerdo #${value} creado. Comparte el número con la otra persona. ${txLink(tx)}`);
+  render(await read("get", [u32(value)]));
+});
+
+$("load").onclick = () => run("Consultando", async () => {
+  render(await read("get", [u32($("aid").value)]));
+  say("Acuerdo actualizado.");
+});
+
+$("accept").onclick = () => run("Esperando tu firma en Freighter", async () => {
+  const { hash } = await invoke("accept", [addr(pub), u32($("aid").value)]);
+  say("Acuerdo aceptado y sellado. " + txLink(hash));
+  render(await read("get", [u32($("aid").value)]));
+});
+
+$("cancel").onclick = () => run("Esperando tu firma en Freighter", async () => {
+  const { hash } = await invoke("cancel", [addr(pub), u32($("aid").value)]);
+  say("Acuerdo cancelado. " + txLink(hash));
+  render(await read("get", [u32($("aid").value)]));
+});
+</script>
+</body>
+</html>
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AcuerdoClaro · Acuerdos verificables en Stellar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#e9eef3;--ink:#14213d;--muted:#5a6a80;--line:#c9d3de;--paper:#fbfcfd;--seal:#0f8b6d;--wait:#b7791f;--bad:#b03a48;--r:6px}
+@media (prefers-color-scheme:dark){:root{--bg:#0e1522;--ink:#e6ecf4;--muted:#92a2b8;--line:#27364d;--paper:#16202f;--seal:#3ec9a3;--wait:#e0a84a;--bad:#ef7a88}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Figtree,system-ui,sans-serif}
+main{max-width:1040px;margin:0 auto;padding:40px 20px 80px}
+header{display:flex;justify-content:space-between;align-items:flex-end;gap:16px;flex-wrap:wrap;margin-bottom:32px}
+h1{font:700 clamp(2rem,5vw,3.4rem)/1 "Bricolage Grotesque",sans-serif;margin:0;letter-spacing:-.03em}
+header p{margin:8px 0 0;color:var(--muted);max-width:46ch}
+h2{font:700 1.15rem "Bricolage Grotesque",sans-serif;margin:0 0 14px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+.box{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:22px}
+label{display:block;font-weight:600;font-size:.9rem;margin:14px 0 4px}
+input,textarea{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:var(--r);background:var(--bg);color:var(--ink);font:inherit}
+textarea{min-height:110px;resize:vertical}
+input:focus,textarea:focus,button:focus-visible{outline:2px solid var(--seal);outline-offset:1px}
+button{font:600 .95rem Figtree,sans-serif;padding:10px 16px;border-radius:var(--r);border:1px solid var(--ink);background:var(--ink);color:var(--bg);cursor:pointer}
+button.alt{background:transparent;color:var(--ink)}
+button:disabled{opacity:.45;cursor:not-allowed}
+.row{display:flex;gap:10px;flex-wrap:wrap;margin-top:16px}
+.hash{font:12px/1.4 ui-monospace,monospace;color:var(--muted);word-break:break-all;margin-top:6px}
+.sheet dl{display:grid;grid-template-columns:110px 1fr;gap:8px 12px;margin:0}
+.sheet dt{color:var(--muted);font-size:.88rem}
+.sheet dd{margin:0;word-break:break-all;font-size:.92rem}
+.stamp{display:inline-block;padding:3px 12px;border:2px solid currentColor;border-radius:var(--r);font:700 1rem "Bricolage Grotesque",sans-serif;transform:rotate(-3deg)}
+.s0{color:var(--wait)}.s1{color:var(--seal)}.s2{color:var(--bad)}
+.empty{color:var(--muted)}
+#log{margin-top:20px;font-size:.92rem}
+#log.err{color:var(--bad)}
+#log a{color:var(--seal);font-weight:600}
+.net{font-size:.85rem;color:var(--muted)}
+</style>
+</head>
+<body>
+<main>
+<header>
+  <div>
+    <h1>AcuerdoClaro</h1>
+    <p>Crea un acuerdo, tu cliente lo acepta con Freighter y queda sellado en Stellar Testnet.</p>
+  </div>
+  <div>
+    <button id="connect">Conectar Freighter</button>
+    <div class="net" id="who">Sin conectar</div>
+  </div>
+</header>
+
+<div class="box" style="margin-bottom:20px">
+  <label for="cid" style="margin-top:0">Dirección del contrato (C…)</label>
+  <input id="cid" placeholder="C..." autocomplete="off" spellcheck="false">
+</div>
+
+<div class="grid">
+  <section class="box">
+    <h2>Nuevo acuerdo</h2>
+    <label for="title">Título</label>
+    <input id="title" maxlength="80" placeholder="Diseño de logo, 3 propuestas">
+    <label for="cp">Wallet de la otra persona (G…)</label>
+    <input id="cp" placeholder="G..." autocomplete="off" spellcheck="false">
+    <label for="terms">Condiciones completas</label>
+    <textarea id="terms" placeholder="Entregables, precio, fechas, revisiones…"></textarea>
+    <div class="hash" id="hash">Huella SHA-256: —</div>
+    <div class="row"><button id="create" disabled>Crear acuerdo en Stellar</button></div>
+  </section>
+
+  <section class="box sheet">
+    <h2>Consultar o aceptar</h2>
+    <label for="aid" style="margin-top:0">Número de acuerdo</label>
+    <input id="aid" type="number" min="1" placeholder="1">
+    <div class="row">
+      <button id="load" class="alt" disabled>Ver acuerdo</button>
+      <button id="accept" disabled>Aceptar</button>
+      <button id="cancel" class="alt" disabled>Cancelar</button>
+    </div>
+    <div id="detail" style="margin-top:20px"><p class="empty">Ingresa un número para ver su estado.</p></div>
+  </section>
+</div>
+
+<div id="log" role="status" aria-live="polite"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@stellar/stellar-sdk@13.1.0/dist/stellar-sdk.min.js"></script>
+<script type="module">
+
+import freighterApi from "https://esm.sh/@stellar/freighter-api@6.0.1";
+
+const StellarSdk = window.StellarSdk;
+const { Contract, TransactionBuilder, nativeToScVal, scValToNative, xdr, Address, rpc } = StellarSdk;
+
+const RPC = "https://soroban-testnet.stellar.org";
+const server = new rpc.Server(RPC);
+const NET = "Test SDF Network ; September 2015";
+const $ = id => document.getElementById(id);
+const STATUS = ["Pendiente", "Aceptado", "Cancelado"];
+let pub = null;
+
+
+$("cid").value = localStorage.getItem("cid") || "";
+$("cid").addEventListener("change", () => localStorage.setItem("cid", $("cid").value.trim()));
+
+const say = (html, err = false) => { $("log").className = err ? "err" : ""; $("log").innerHTML = html; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const toHex = u8 => [...u8].map(b => b.toString(16).padStart(2, "0")).join("");
+const sha256 = async t => new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t.trim())));
+
+$("terms").addEventListener("input", async () => {
+  const t = $("terms").value;
+  $("hash").textContent = "Huella SHA-256: " + (t.trim() ? toHex(await sha256(t)) : "—");
+});
+
+function toggle(on) { ["create", "load", "accept", "cancel"].forEach(i => $(i).disabled = !on); }
+
+
+
+
+$("connect").onclick = async () => {
+  say("Buscando Freighter...");
+
+  try {
+    const check = await freighterApi.isConnected();
+
+    console.log("Estado de Freighter:", check);
+
+    if (check.error) {
+      throw new Error(check.error.message || String(check.error));
+    }
+
+    if (!check.isConnected) {
+      throw new Error(
+        "La API no detecta la extensión. Comprueba que Freighter esté habilitada en este perfil de Chrome."
+      );
+    }
+
+    say("Freighter detectada. Solicitando permiso...");
+
+    const acc = await freighterApi.requestAccess();
+
+    if (acc.error) {
+      throw new Error(acc.error.message || String(acc.error));
+    }
+
+    if (!acc.address) {
+      throw new Error("No se recibió una dirección pública.");
+    }
+
+    pub = acc.address;
+
+    $("who").textContent =
+      pub.slice(0, 6) + "…" + pub.slice(-6);
+
+    toggle(true);
+    say("Wallet conectada. Dirección pública recibida.");
+
+  } catch (e) {
+    console.error("Error de conexión:", e);
+    say("No se pudo conectar: " + esc(e.message), true);
+  }
+};
+
+
+
+const contractId = () => {
+  const id = $("cid").value.trim();
+  if (!/^C[A-Z2-7]{55}$/.test(id)) throw new Error("Escribe una dirección de contrato válida (C…).");
+  return id;
+};
+const addr = (a) => Address.fromString(a).toScVal();
+const str = s => nativeToScVal(s, { type: "string" });
+const u32 = n => nativeToScVal(Number(n), { type: "u32" });
+
+async function buildTx(method, args) {
+  const account = await server.getAccount(pub);
+  return new TransactionBuilder(account, { fee: "1000000", networkPassphrase: NET })
+    .addOperation(new Contract(contractId()).call(method, ...args))
+    .setTimeout(60).build();
+}
+
+async function read(method, args) {
+  const sim = await server.simulateTransaction(
+    await buildTx(method, args)
+  );
+
+  if (!sim.result) {
+    console.error("Resultado de Stellar:", sim);
+    throw new Error("No se pudo consultar el acuerdo. Revisa la consola.");
+  }
+
+  return scValToNative(sim.result.retval);
+}
+
+async function invoke(method, args) {
+  const prepared = await server.prepareTransaction(await buildTx(method, args));
+  const res = await freighterApi.signTransaction(
+    prepared.toXDR(),
+    { networkPassphrase: NET, address: pub }
+  );  
+  if (res.error) throw new Error(res.error.message || res.error);
+  const sent = await server.sendTransaction(TransactionBuilder.fromXDR(res.signedTxXdr, NET));
+  if (sent.status === "ERROR") throw new Error("La red rechazó la transacción.");
+  let r;
+  for (let i = 0; i < 30; i++) {
+    r = await server.getTransaction(sent.hash);
+    if (r.status !== "NOT_FOUND") break;
+    await new Promise(ok => setTimeout(ok, 1500));
+  }
+  if (r.status !== "SUCCESS") throw new Error("La transacción falló (" + r.status + "). Hash: " + sent.hash);
+  return { hash: sent.hash, value: r.returnValue ? scValToNative(r.returnValue) : null };
+}
+
+const txLink = h => `<a href="https://stellar.expert/explorer/testnet/tx/${h}" target="_blank" rel="noopener">Ver en Stellar Expert</a>`;
+const fmtDate = ts => Number(ts) ? new Date(Number(ts) * 1000).toLocaleString("es-MX") : "—";
+
+function render(a) {
+  const s = Number(a.status);
+  $("detail").innerHTML = `<span class="stamp s${s}">${STATUS[s]}</span>
+  <dl style="margin-top:16px">
+    <dt>Título</dt><dd>${esc(a.title)}</dd>
+    <dt>Creó</dt><dd>${esc(a.creator)}</dd>
+    <dt>Contraparte</dt><dd>${esc(a.counterparty)}</dd>
+    <dt>Huella</dt><dd style="font-family:ui-monospace,monospace;font-size:.78rem">${toHex(a.terms_hash)}</dd>
+    <dt>Creado</dt><dd>${fmtDate(a.created_at)}</dd>
+    <dt>Aceptado</dt><dd>${fmtDate(a.accepted_at)}</dd>
+  </dl>`;
+}
+
+async function run(label, fn) {
+  say(label + "…");
+  toggle(false);
+  try { await fn(); } catch (e) { say(esc(e.message), true); }
+  toggle(true);
+}
+
+$("create").onclick = () => run("Esperando tu firma en Freighter", async () => {
+  const title = $("title").value.trim(), cp = $("cp").value.trim(), terms = $("terms").value;
+  if (!title || !terms.trim() || !cp) throw new Error("Completa título, wallet y condiciones.");
+  const hash = await sha256(terms);
+  const { hash: tx, value } = await invoke("create", [addr(pub), addr(cp), str(title), xdr.ScVal.scvBytes(hash)]);
+  $("aid").value = value;
+  say(`Acuerdo #${value} creado. Comparte el número con la otra persona. ${txLink(tx)}`);
+  render(await read("get", [u32(value)]));
+});
+
+$("load").onclick = () => run("Consultando", async () => {
+  render(await read("get", [u32($("aid").value)]));
+  say("Acuerdo actualizado.");
+});
+
+$("accept").onclick = () => run("Esperando tu firma en Freighter", async () => {
+  const { hash } = await invoke("accept", [addr(pub), u32($("aid").value)]);
+  say("Acuerdo aceptado y sellado. " + txLink(hash));
+  render(await read("get", [u32($("aid").value)]));
+});
+
+$("cancel").onclick = () => run("Esperando tu firma en Freighter", async () => {
+  const { hash } = await invoke("cancel", [addr(pub), u32($("aid").value)]);
+  say("Acuerdo cancelado. " + txLink(hash));
+  render(await read("get", [u32($("aid").value)]));
+});
+</script>
+</body>
+</html>
