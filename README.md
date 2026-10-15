@@ -1,4 +1,4 @@
-# AcuerdoClaro
+# ---AcuerdoClaro---
 
 Acuerdos verificables entre freelancers y clientes en **Stellar Testnet**. El texto del acuerdo queda fuera de la cadena; en Stellar se registra su huella SHA-256, las partes, el estado y la fecha de aceptación.
 
@@ -24,7 +24,7 @@ Pega la dirección C…, conecta Freighter (en Testnet) y crea/acepta un acuerdo
 - Tx: `https://stellar.expert/explorer/testnet/tx/<hash>`
 - Repo con 10+ commits
 
-## Commits sugeridos
+## Commits para interactuar
 1. chore: estructura inicial y .gitignore
 2. feat(contract): structs Agreement/Status y errores
 3. feat(contract): create
@@ -36,3 +36,5 @@ Pega la dirección C…, conecta Freighter (en Testnet) y crea/acepta un acuerdo
 9. feat(frontend): conexión con Freighter
 10. feat(frontend): invocar create/accept y link a Stellar Expert
 11. docs: README con dirección del contrato y tx
+
+## R0D :v
